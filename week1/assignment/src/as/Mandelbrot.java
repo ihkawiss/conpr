@@ -1,5 +1,8 @@
 package as;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import javafx.scene.paint.Color;
 
 /**
@@ -45,8 +48,48 @@ public class Mandelbrot {
 
 	
 	public static void computeParallel(PixelPainter painter, Plane plane, CancelSupport cancel) {
-		// TODO Implement a parallel version of the mandelbrot set computation.
-		throw new RuntimeException("To be implemented!");
+		final int threadPool = 1; // must be 2^n to divide IMAGE_LENGTH 
+		final int sliceWidth = (IMAGE_LENGTH / threadPool);
+		
+		double half = plane.length / 2;
+		double reMin = plane.center.r - half;
+		double imMax = plane.center.i + half;
+		double step = plane.length / IMAGE_LENGTH;
+
+		List<Thread> threads = new ArrayList<>();
+		
+		for(int i = 1; i <= threadPool; i++) {
+			int end = sliceWidth * i;
+			int start = end - sliceWidth;
+
+			Thread t = new Thread(new Runnable() {
+				@Override
+				public void run() {
+					for (int x = start; x < end && !cancel.isCancelled(); x++) { // x-axis
+						double re = reMin + x * step; // map pixel to complex plane
+						for (int y = 0; y < IMAGE_LENGTH; y++) { // y-axis
+							double im = imMax - y * step; // map pixel to complex plane
+
+							int iterations = mandel(re, im);
+							painter.paint(x, y, getColor(iterations));
+						}
+					}
+				}
+			});
+			
+			threads.add(t);
+			t.start();
+		}
+		
+		// blocking for speed measurement
+		for (Thread thread : threads) {
+		    try {
+				thread.join();
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+		}
+		
 	}
 
 	/**

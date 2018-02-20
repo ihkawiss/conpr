@@ -5,8 +5,8 @@ import static as.Mandelbrot.IMAGE_LENGTH;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
+import as.runner.DrawRunner;
 import javafx.application.Application;
-import javafx.application.Platform;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.DoubleProperty;
 import javafx.beans.property.Property;
@@ -212,14 +212,10 @@ public class JavaFXMandelbrot extends Application {
 
     CancelSupport cancelSupport = new CancelSupport();
     cancelled.addListener((o, oldVal, newVal) -> cancelSupport.cancel());
-
-    { // <<<<<<<<This block of code should run in a separate Thread >>>>>>>
-      double start = System.currentTimeMillis();
-      // Replace the following line with Mandelbrot.computeParallel(...)
-      Mandelbrot.computeSequential(painter, plane, cancelSupport);
-      double end = System.currentTimeMillis();
-      Platform.runLater(() -> millis.set((end - start) + "ms"));
-    } // <<<<<<<<This block of code should run in a separate Thread >>>>>>>
+    
+    DrawRunner runnable = new DrawRunner(painter, plane, cancelSupport, millis);
+    Thread t = new Thread(runnable);
+    t.start();
 
     return image;
   }
