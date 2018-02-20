@@ -10,7 +10,25 @@ public class DebugMe {
 		t2.start();
 		System.out.println("#CPUs: " + Runtime.getRuntime().availableProcessors());
 		System.out.println("main: done");
+
+		// WARNING: produces heap-space/exception!
+		int threads = 0;
+		while (true) {
+			System.out.println(++threads);
+			Thread t = new Thread(new X());
+			t.start();
+			Thread.sleep(10);
+		}
 	}
+}
+
+class X implements Runnable {
+
+	@Override
+	public void run() {
+		// NOP
+	}
+
 }
 
 class R implements Runnable {
