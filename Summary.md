@@ -175,3 +175,18 @@ t1.setUncaughtExceptionHandler(...);
 // static
 Thread.setDefaultUncaughtExceptionHandler(...);
 ```
+
+## Locks
+
+### Race Conditions
+
+Bearbeiten mehrere Threads gleichzeitig ein und dieselbe Ressource, wie z.B. einen Counter (Integer), so kann dies zu inkonsistenten Zuständen führen - dies bezeichnet man als Race Conditions. Klassisches Beispiel ist die Bank, wobei gleichzeitig ein Thread eine Einzahlung und ein anderer eine Abhebung durchführt. Beide werden den Kontostand (Integer/Float) aktualisieren. Wird dieser von einem Thread gelesen, kann der Kontostand in der Zwischenzeit jedoch schon wieder geändert haben, wodurch die Aktion zum falschen Kontostand führen kann (Lost-Update). Die bearbeitete Ressource ist also nicht Thread-Safe, nicht dagegen geschützt.
+
+### Synchronization
+
+Um Race Condtions auf **shared, mutable state** zu verhindern kann Synchronization verwendet werden.
+
+**state**: Daten im Heap, instance und static fields  
+**mutable**: Variable kann in ihrem "Leben" ändern  
+**shared**: Variable kann von mehrern Threads verwendet werden
+
