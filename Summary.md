@@ -190,3 +190,102 @@ Um Race Condtions auf **shared, mutable state** zu verhindern kann Synchronizati
 **mutable**: Variable kann in ihrem "Leben" ändern  
 **shared**: Variable kann von mehrern Threads verwendet werden
 
+### Synchronization mit Java Features
+
+Mit dem Keyword **synchronized** wird in Java auf einem Objekt ein Lock erstellt, also ```lock.lock()``` ausgegührt. Der Lock wird beim Eintreten (**monitorenter**) in den synchronized Block vergeben. Wenn Lock vergeben ist kommt ein Thread in eine Warteschlange. Der Lock wird freigegeben sobald der synchronized Block verlassen wird (**monitorexit**), dies auch bei einer Exception.
+
+```java
+int i = 0;
+public void threadSafe() {
+	synchronized (this) { // monitorenter
+		i++; // atomic here!
+	} // monitorexit
+} 
+
+// Kurzformen
+public synchronized void threadSafe() {...} // equal to synchronized(this)
+public static synchronized void doSomeSpookyStuff() {...} // equal to synchronized(Ghost.class)
+```
+
+### Reentrancy of Synchronized
+
+Ein synchronized Block in Java ist immer **reentrant**, was bedeutet, dass ein Thread welcher einen Lock hält jeden Lock öffnen kann welcher mit dem selben Objekt synchronisiert wurde.
+
+```java
+synchronized(x) {
+   synchronized(x) { /* no deadlock */ }
+}
+
+synchronized f() { g(); }
+synchronized g() { /* no deadlock */ }
+```
+
+### Atomarität
+
+- **Synchronized Blocks auf dem gleichen Lock**
+	- werden atomar ausgeführt
+
+- **Synchronized Blocks auf verschiedenen Locks**
+	- werden nicht atomar ausgeführt, Interleavings also möglich
+
+### Design von Locks
+
+- ```synchronized(this)```
+	- Implementationsdetails einsehbar
+	- Macht Code angreifbar
+
+- ```synchronized(lock)```
+	- lock object kann private sein
+	- explizit
+	- oft zu bevorzugen
+
+### Synchronization mit Locks
+
+```java.util.concurrent.locks.Lock``` bietet mehr Flexibilität im Umgang mit Locks als dies ```synchronized``` tut.
+
+- Fairness
+- Non-blocking locking Strukturen
+- Thread kann lock zeitlich abgestimmt erhalten
+- Thread kann prüfen ob Lock verfügbar ist und in dann entgegennehmen
+
+```java
+public interface Lock {
+   void lock();
+   void unlock();
+	boolean tryLock();
+	boolean tryLock(long timeout, TimeUnit unit)
+}
+
+final Lock lock = ...;
+...
+lock.lock();
+try {
+   // access resources protected by this lock
+}
+finally {
+   lock.unlock();
+}
+```
+
+#### ReentrantLock
+
+- ```lock``` returnt sofort wenn Thread lock bereits hält
+- Weitere Methoden auf einem ReentrantLock
+	- ```Thread getOwner()``` Gibt den Thread zurück der den Lock aktuell hält
+	- ```boolean isHeldByCurrentThread()``` Ob der Lock durch den aktuellen Thread gehalten wird
+	- ```int getHoldCount()``` Locks die der Thread auf diesem Lock hält
+	- ```int getQueueLentgh()``` Threads die warten
+- **Lock muss immer durch jenen Thread freigegeben werden der ihn auch erhalten hat**
+
+### Deadlocks
+
+Unter den folgenden Umständen können Deadlocks auftreten. Zur Verhinderung mind. eine Bedingung verhindern.
+
+- **Mutal Exclusion** (Mutex=synchronized)
+	- Zugriff auf Resource ist exklusiv
+- **Hold and Wait**
+	- Threads verlangen nach weitern Ressourcen wenn Sie schon welche halten
+- **No Preemption**
+	- Resourcen werden nur von Threads freigegeben
+- **Circular Wait**
+	- Zwei oder mehr Prozesse/Threads formen einen Kreis, wo jeder auf Resourcen wartet die druch den nächsten gehalten wird.
