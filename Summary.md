@@ -161,3 +161,17 @@ public void doWork(String param, int magicNumber) { ... }
 
 **boolean isAlive()**  
 - Gibt an ob der Thread noch läuft
+
+#### Uncaught Exceptions
+
+```java
+interface UncaughtExceptionHandler {
+	void uncaughtException(Thread t, Throwable e);
+}
+
+// instance
+t1.setUncaughtExceptionHandler(...);
+
+// static
+Thread.setDefaultUncaughtExceptionHandler(...);
+```
