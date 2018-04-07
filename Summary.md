@@ -62,6 +62,7 @@ Geteilte Arbeit kann grundsätzlich auf zwei Arten von Arbeitern (Threads) ausge
 	- hat eigenen Ausführungs-Kontext
 	- kommuniziert mit anderen Threads über Shared-Memory
 
+
 ### Threading Modes
 
 - Kernel-Level
@@ -108,4 +109,17 @@ Thread t1 = new Thread(w);
 
 // Starten des Threads, returnt unverzüglich
 t1.start();
+
+// ALTERNATIVE IMPLEMENTATION
+// Die Klasse Thread implementiert das Interface Runnable, 
+// somit kann von der Klasse Thread geerbt sowie run() überschrieben werden.
+
+// LAMDA EXPRESSION
+// Da Runnable ein functional interface ist kann run() mittels LAMDA definiert werden
+Thread lamda = new Thread(() -> {
+	System.out.println("Ich bin der wohl sinnloseste Thread aller Zeiten.");
+});
+
+Thread methodSignature = new Thread(() -> doWork("paramA", 100));
+public void doWork(String param, int magicNumber) { ... }
 ``` 
