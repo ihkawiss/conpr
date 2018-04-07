@@ -123,3 +123,41 @@ Thread lamda = new Thread(() -> {
 Thread methodSignature = new Thread(() -> doWork("paramA", 100));
 public void doWork(String param, int magicNumber) { ... }
 ``` 
+
+#### Thread API
+
+**start()**  
+- Startet den Thread
+
+**run()**  
+- Jener Code der die Arbeit representiert
+
+**sleep(long millis [, int nanos])**  
+- legt den Thread für m Millisekunden schlafen
+
+**yield()**  
+- signalisiert dem Scheduler, dass der Thread bereit ist CPU-Zeit abzugeben (Scheduler kann das ignorieren)
+
+**join([long milliseconds])**  
+- Wartet auf den Prozess (Time-Out in Millisekunden)
+
+**setDeamon(boolean)**  
+- Markiert den Thread als Deamon (blockieren JVM nicht, wenn nur noch Deamons -> JVM beendet)
+
+**Thread.getCurrentThread()**
+- Gibt aktuellen Thread zurück
+
+**long getId()**  
+- Gibt die ID eines Threads zurück
+
+**String getName()**  
+- Gibt den Namen eines Threads zurück
+
+**boolean isDeamon()**  
+- Teilt mit ob Thread ein Deamon ist oder nicht
+
+**State getState()**  
+- Gibt den Status des Threads zurück
+
+**boolean isAlive()**  
+- Gibt an ob der Thread noch läuft
