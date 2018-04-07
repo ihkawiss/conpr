@@ -289,3 +289,127 @@ Unter den folgenden Umständen können Deadlocks auftreten. Zur Verhinderung min
 	- Resourcen werden nur von Threads freigegeben
 - **Circular Wait**
 	- Zwei oder mehr Prozesse/Threads formen einen Kreis, wo jeder auf Resourcen wartet die druch den nächsten gehalten wird.
+
+## Condition Synchronization
+
+Möchten mehrere Threads auf eine Ressource zugreifen, welche an eine Bedingung geknüpft ist, können Probleme auftreten:
+
+- Deadlocks  
+- Inkonsistente Zustände
+- Warten nicht möglich
+- Unnötiges Warten bzw. Try & Wait & Try & Wait ...
+
+### Pattern für Condition Synchronization
+
+```java
+public class CarPark extends Thread {
+	
+	// condition variable
+	private int places;
+	
+	// constructor
+	public CarPark(int initialPlaces) { this.places = initialPlaces; }
+
+	// lock object
+	private final Object LOCK = new Object();
+
+	public enter() {
+		synchronized(LOCK) {
+			while(places == 0) { // full, so wait!
+				try { lock.wait() } // leaves critical section (sleep), lock is released! 
+				catch (InterruptedException e) { // NOP }
+			}
+			places--; // actual parking goes here
+		}		
+	}
+	
+	public synchronized leave() {
+		synchronized(LOCK) {
+         places++; 
+         lock.notifyAll();
+		}
+	}
+
+}
+```
+
+### Uniform Waiters
+
+Werden mehrere Bedingungen eingesetzt, so würden beim verwenden des selben Locks alle auf die gleiche Bedingung warten. Grade wenn nur ```lock.notify()``` verwendet würde, könnte dies theoretisch dazu führen, dass ein Deadlock entsteht (immer selber Thread der aufgeweckt wird und die Condition nicht ändern kann/will). Lösung: Für jede Bedingung ein eigenes Condition-Objekt verwenden.
+
+```java
+public class Queue {
+	private final static int SIZE = 10;
+	
+	private final Object[] buf = new Object[SIZE];
+	private int tail = 0, head = 0;
+	
+	private final Lock lock = new ReentrantLock();
+	private final Condition notEmpty = lock.newCondition(); 
+	
+	private final Condition notFull = lock.newCondition();
+
+	public Object dequeue() { lock.lock();
+		try {
+          while (tail == head) { // while empty
+				try { notEmpty.await(); 
+			} catch (Exception e) {} }
+          
+          Object e = buf[head]; 
+          head = (head + 1) % SIZE;
+			notFull.signal(); 
+			return e; 
+		} finally { 
+			lock.unlock(); 
+		}
+	}
+	
+	public void enqueue(Object c) { lock.lock();
+		try {
+    		while ((tail + 1) % SIZE == head) {
+				try { notFull.await(); } catch (Exception e) {} 
+			}
+    
+    		buf[tail] = c; tail = (tail + 1) % SIZE;
+			notEmpty.signal(); 
+		} 
+		finally {
+			lock.unlock(); 
+		}
+	}
+}
+```
+
+### Stopping Threads
+
+Blockierende oder sehr lange dauernde Operationen können dazu führen, dass die Anwendung pontentiell nie fertig wird da sie für immer wartet. Blockierende und lang dauernde Operationen müssen daher *cancelable* sein.
+
+**Cancel Operations** *(auf Thread Object)*
+
+- ```stop()``` ***DEPRECATED*** Freigeben aller Monitors, Inconsitenz wird sichtbar für andere Threads
+- ```interrupt()``` 
+	- Setzt das interrupt Flag
+	- Bei wait / sleep / join wird eine ```InterruptedException``` geworfen
+	- Lesen des Flags mit ```isInterrupted()```
+
+	
+**Handling InterruptedException**
+
+```
+try { ... }
+catch (InterruptedException ie) {
+	// Possible actions:
+	
+	// 1) Ignore exception
+	// wenn angenommen wird, dass interrupt nie aufgerufen wird
+	// wenn der Thread nicht interrupted werden sollte
+	
+	// 2) Propagate the exception
+	// aufräumen der bishereigen Arbeit
+	// rethrow der Exception
+	
+	// 3) Defer the exception
+	// Exception wird am falschen Ort gefangen (z.B. im Runnable)
+	// An richtigen Ort leiten, z.B. Thread.currentThread().interrupt();
+}
+```
