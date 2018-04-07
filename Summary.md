@@ -413,3 +413,80 @@ catch (InterruptedException ie) {
 	// An richtigen Ort leiten, z.B. Thread.currentThread().interrupt();
 }
 ```
+
+## Java Memory Model
+
+Alle Threads des selben Prozesses teilen gemeinsam den gleichen Hauptspeicher. Jedem Thread steht ein Arbeitsbereich zur Verfügung. In der Realität werden auf der CPU aber Caching-Levels angeboten und verwendet (Performance). Dies führt dazu, dass nicht alle Zustände immer im Speicher verfügbar sind, bzw. diese nicht immer durch alle Threads gelesen werden können. Das Java Memory Model definiert Garantien unter welchen Umständen Schreibvorgänge in Variabeln in anderen Threads sichtbar werden. 
+
+### Happens Before Relation
+
+Die Happens-Before-Relation ist eine Regel, welche Sichtbarkeiten nach **Aktionen** (*variable read/write, monitor lock/unlock, thread start/join*) in der JVM/JMM definiert und garantiert.
+
+#### Regeln
+
+1. Jede Aktion in einem Thread ***happens before*** jeder Aktion die später im Programmablauf ausgeführt werden.
+2. Ein ```unlock``` auf einem ```monitor lock``` ***happens before*** allen nachfolgenden ```locks``` auf dem selben ```monitor lock```.
+3. Ein Schreiben auf eine ```volatile``` Variable ***happens before*** allen nachfolgenden Lesezugriffen auf die selbe Variable.
+4. Der Aufruf ```Thread.start()``` ***happens before*** jeder nachfolgenden Aktion in dem gestarteten Thread.
+5. Aktionen in einem Thread t1 ***happens before*** ein anderer Thread die Terminierung von t1 feststellt.
+6. Die ***happens before*** Reihenfolge ist transitiv (A -hb-> B && B -hb-> C => A -hb-> C)
+
+#### Volatile
+
+Variabeln welche mit dem Keyword ```volatile``` markiert werden dürfen nicht im local Cache gespeichert werden. Zudem werden alle Read/Write Aktionen auf die als ```volatile``` markierte Variable atomar ausgeführt. ```Synchronized``` ist also nicht nötig.
+
+**Regeln für das Verwenden von ```volatile```**
+
+1. Der neue Wert muss unabhängig vom alten sein, ansosten ```synchronized```
+2. Der neue Wert muss unabhängig von anderen Werten sein, ansonsten ```synchronized```
+
+### Double Checked Locking Problem
+
+Das oben genannte Problem tritt bei der Implementierung von Singletons auf. Erst wird geprüft, ob das statische Feld ```null``` ist - falls ja, muss vor Initialiserung der Lock auf die Klasse geholt werden. Nach erhalt des Locks könnte die Instanz bereits erstellt sein, ein erneutes Prüfen auf ```null```ist also notwenig. Sie folgender Code:
+
+```java
+public class Singleton {
+	private static Singleton instance;
+
+	public static Singleton getInstance() {
+		if (instance == null) {
+			synchronized (Singleton.class) {
+				if (instance == null) {
+					instance = new Singleton();
+				}
+			}
+		}
+		return instance;
+	}
+
+	private Singleton() {
+		/* initialization */ 
+	}
+	
+	// other methods
+}
+```
+
+**Lösung**
+
+```java
+public class Singleton {
+	private volatile static Singleton instance;
+
+	public static Singleton getInstance() {
+		if (instance == null) {
+			synchronized (Singleton.class) {
+				if (instance == null) {
+					instance = new Singleton();
+				}
+			}
+		}
+		return instance;
+	}
+
+	private Singleton() {
+		/* initialization */ 
+	}
+	// other methods
+}
+```
