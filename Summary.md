@@ -490,3 +490,16 @@ public class Singleton {
 	// other methods
 }
 ```
+
+## Probleme
+
+### java.util Strukturen
+
+HashMap, HashTree, List usw. sind nicht ThreadSafe, Lösung:
+
+```java
+List newList = Collections.synchronizedList(oldList);
+Map newMap = 
+```
+
+**TODO: SUMMARY BANK SOLUTIONS HERE...**
