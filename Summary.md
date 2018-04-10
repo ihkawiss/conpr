@@ -659,7 +659,173 @@ java.util.ThreadLocalRandom
 Schlechte Performance ohne ThreadLocal
 ```
 
+## Lock Free Programming
 
+Synchronisierung, also das Verwenden von Locks (```synchronized``` sowie ```java.util.concurrent.locks.Lock```), ist teuer. Threads die auf einen Lock warten können nichts anderes mehr erledigen. Schlussendlich Deadlock, Live Lock..
+
+### CAS (Compare and Set/Swap Instruction)
+Ähnlich wie ```volatile``` atomares Lesen/Schreiben garantiert, ermöglich CAS das atomare setzten von Werten. CAS vergleicht jedoch ob der alte Wert noch dem aktuellen entspricht, falls ja wird dieser durch den neuen Wert ersetzt. Diese **check than act** Instruktion wird bei CAS garantiert atomar ausgeführt. Ebenso gibt CAS den Status zurück ob das Update funktioniert hat oder nicht.
+
+```java
+long value;
+boolean compareAndSet(long oldValue, long newValue) {
+	// atomic check then act here!
+	if(value == oldValue) { value = newValue; return true;}
+	else return false;
+}
+```
+
+**Semantik**
+
+```java
+public final class CASCounter {
+	private volatile long value = 0;
+	
+	public long getValue() {
+	      return value;
+	}
+	
+   public long increment() {
+      while(true) {
+			long current = getValue();
+			long next = current + 1;
+			
+			// neu setzten solange versuchen bis es klappt
+			if (compareAndSwap(current, next)) 
+				return next;
+		}
+	}
+... 
+}
+```
+
+***Low Level Code - UNSAFE***
+
+```java
+	public final class CASCounter { 
+	...
+	private static final Unsafe unsafe = Unsafe.getUnsafe(); 
+	private static final long valueOffset;
+	
+	static { 
+		try {
+		valueOffset = unsafe.objectFieldOffset( 
+			CASCounter.class.getDeclaredField("value")
+		);
+		} catch (Exception ex) { 
+			throw new Error(ex); 
+		} 
+	}
+	
+	private boolean compareAndSwap(long expectedVal, long newVal){ 
+		return unsafe.compareAndSwapLong(
+			this, valueOffset, expectedVal, newVal
+		);
+	} 
+}
+```
+
+### Atomics
+
+Atomic-Datentypen unterstützen in Java alle CAS Operationen.
+
+**Scalare**  
+Visibilität gleich wie ```volatile``` => gleiche happens before Regeln
+
+-  AtomicInteger
+-  AtomicLong
+-  AtomicReference\<T>  
+```new AtomicReference<Pair>(new Pair(0,0));```  
+
+-  AtomicBoolean
+
+**Arrays**  
+Bietet ```volatile``` Zugriff-Semantik auf Elemente des Arrays
+
+- AtomicIntegerArray  
+```array.compareAndSet(index, oldVal, newVal);```
+
+- AtomicLongArray  
+```array.compareAndSet(index, oldVal, newVal);```
+
+- AtomicReferenceArray\<T> 
+
+**Beispiel**
+
+```java
+public class NumberRange {
+	private final AtomicInteger lower = new AtomicInteger(0); 
+	private final AtomicInteger upper = new AtomicInteger(0); 
+	
+	// INVARIANT: lower <= upper
+	public int getLower() { 
+		return lower.get(); 
+	} 
+	
+	public void setLower(int newLower) {
+		while (true) {
+			int l = lower.get();
+			int u = upper.get();
+			
+			if (newLower > u) throw new IllegalArgumentException(); 
+			if (lower.compareAndSet(l, newLower)) return;
+		}
+	}
+
+	// same for getUpper/setUpper
+	public boolean contains(int x) {
+		return lower.get() <= x && x <= upper.get();
+	}
+}
+```
+
+### Non-blocking Algorithms
+
+**Non-blocking Stack**
+
+```java
+public class ConcurrentStack<E> { 
+	private static class Node<E> {
+		public final E item;
+		public Node<E> next;
+		public Node(E item) { this.item = item; }
+	}
+	
+	final AtomicReference<Node<E>> top = new AtomicReference<>();
+	
+	public void push(E item) {
+		Node<E> newHead = new Node<E>(item); while(true) {
+		Node<E> oldHead = top.get();
+		newHead.next = oldHead;
+		if (top.compareAndSet(oldHead, newHead)) return;
+	}
+	
+	public E pop() {
+      while(true) {
+			Node<E> oldHead = top.get();
+			if (oldHead == null) throw new EmptyStackException(); 
+			
+			Node<E> newHead = oldHead.next; 
+			if(top.compareAndSet(oldHead, newHead)){
+	            return oldHead.item;
+	       }
+		}
+	}
+}
+
+```
+### ABA Problem
+
+Das A->B->A Problem kann bei Lock freier Programmierung auftreten. Es beschreibt den Fall, in welchem ein Thread T1 den Wert A vom Shared Memory liest. Danach wird Thread T2 die Variable A durch B und dann wieder durch A ersetzten. T1 setzt seine Arbeit fort und denkt es hätte sich nichts geändert da er A als Wert sieht. Dieses Problem kann mit einer sogn. stamped reference gelöst / umgangen werden.
+
+```java
+static int stampVal = 1;
+static AtomicStampedReference<Person> s = 
+new AtomicStampedReference<Person>(new Person(20), stampVal);
+
+s.compareAndSet(s.getReference(), 
+new Person(s.getReference().age+10), stampVal, ++stampVal);
+```
 
 <br> <br> <br>
 ## Probleme
