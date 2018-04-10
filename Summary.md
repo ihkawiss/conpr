@@ -491,6 +491,177 @@ public class Singleton {
 }
 ```
 
+## Safe Object Sharing
+
+Wenn mehrere Threads die selbe ***mutable state variable*** teilen ohne angemessene Synchronisierung ist die Anwendung fehlerhaft. Es gibt drei Wege dies zu beheben:
+
+1. Synchronisierung bei Verwendung der Variable nutzen
+2. State Variable **immutable** machen 
+3. State Variable nicht über mehrere Threads teilen
+
+### Code Sample: Uninitialized Object
+
+```java
+final class Account {
+	private int balance;
+	public Account(int balance) { this.balance = balance; } 
+	public String toString() { return "" + balance; }
+}
+
+class Company {
+	private Account account = null;
+	public Account getAccount() {
+	if(account == null) account = new Account(10000);
+	      return account;
+   }
+}
+
+// Thread initialisiert Account
+// T1 -> company.getAccount().toString();
+
+// Thread sieht Änderung an Account nicht, L1/2 CPU Cache
+// Selbst wenn, Visibilität von balance ist nicht garantiert!
+// T2 -> company.getAccount().toString();
+```
+
+**Fix für obiges Beispiel**
+
+```java
+// Caching des Accounts verbieten
+private volatile Account account = null;
+
+// Visibilität von balance garantieren
+private final int balance;
+```
+
+### JMM Garantien
+
+- Final fields (Primitive- sowie Referenz- Typen) sind sichtbar **nach** Initialisierung
+	-	Referenz Typen müssen über die ```final``` Referenz genutzt
+
+Final fields werden also nach Durchlaufen des Konstruktors in den Hauptspeicher geschrieben. Dies geschieht bevor die Adresse des Objekts sichtbar wird. Initialisierungs-Garantie gilt nur wenn das Objekt erst nach Erstellung benutzt wird, ```this``` während Kontruktor also nicht im Zusammenhang mit dem State verwenden.
+
+**Listener GOOD**
+
+```java
+public class ThisNotEscape {
+	public final int i;
+	
+	private ThisNotEscape() {
+		// DO NOT REGISTER LISTENER ON THIS WHILE CONSTRUCTING 
+		i = 42; 
+	}
+	
+	// SAFE LISTENER REGISTRATION
+	public static ThisNotEscape create(Button source) { 
+		final ThisNotEscape notEscape = new ThisNotEscape(); 	
+		source.registerListener(new ClickListener() {
+			public void buttonClicked() { 
+				notEscape.doSomething();
+			} 
+		});
+	
+		return notEscape; 
+	}
+	... 
+}
+```
+
+### Final vs Volatile
+
+**final**
+
+- Nur final Felder werden nach Konstruktor in RAM geschrieben
+- Nur der Erste Zugriff führt zu einem Refresh
+- Danach wird kein Refresh mehr ausgeführt
+- **Änderungen in Referenztyp werden nicht sichtbar**
+
+**volatile**
+
+- Jeder Lesezugriff garantiert die neusten Daten zu sehen
+- Keine Garantien für Änderungen im Referenztyp
+- **Kein MUTEX, lediglich visibilität (r/w atomar)!**
+
+### Immutablility
+
+Finale Felder müssen richtig konstruiert werden, kein Escaping von ```this```. Felder können nach Initialisierung nicht geändert werden. **Sind immer THREAD-SAFE!**
+
+**Strict Immutable**
+
+- Alle Felder sind final (empfohlen)
+- Cann in jede Richtung publiziert werden (visibility = consistency)
+
+**Effectively Immutable**
+
+- State ändert nicht, jedoch nicht ```final```
+- Muss sicher publiziert werden => ```volatile```
+
+**Wie man Objekte sichtbar macht**
+
+- Referenz in einer ```volatile```Variable speichern
+- Referenz in ein Feld speichern dass durch einen Lock geschützt ist.
+- Objekt mit einem ```static``` Initialisierer erstellen
+- Referenz in einem ```final``` Feld speichern und richtig konstruieren.
+
+### Method Local Variables
+
+Variabeln welche nicht zwischen Threads **shared** sind können nur durch den ausführenden Thread verwendet werden. Solche Variabeln sollen dann aber auch nicht publiziert werden!
+
+**Schlecht:**
+
+```java
+public class BadFormatter {
+	// variable wird publiziert (HEAP) obwohl nicht nötig!
+	private static final SimpleDateFormat f = new SimpleDateFormat();
+	public static String format(Date d) { 
+		return f.format(d);
+	} 
+}
+```
+
+**Besser**
+
+Falls das wirklich ein Perfomance Problem wäre, ```ThreadLocal``` benutzen.
+
+```java
+public class GoodFormatter {
+	public static String format(Date d) {
+		SimpleDateFormat sdf = new SimpleDateFormat();
+		return sdf.format(d); 
+	}
+}
+```
+
+### ThreadLocal
+
+Mit einer ```ThreadLocal``` Variable kann für jeden Thread eine seperate Kopie dieser Variable zur Verfügung gestellt werden. Typischerweise ```private static``` fields.
+
+**Interface**
+
+```java
+class ThreadLocal<T> { 
+	public T get();	// returns thread local value
+	public void set(T value);	// sets value for current thread
+	protected T initialValue(); // defines initial value
+	public void remove();
+}
+
+// sample usage
+private static ThreadLocal<SimpleDateFormat> local = 
+ThreadLocal.withInitial(() -> new SimpleDateFormat());
+
+public static String format(Date d) { 
+	return local.get().format(d);
+}
+
+// Anwendungsbeispiel
+java.util.ThreadLocalRandom
+Schlechte Performance ohne ThreadLocal
+```
+
+
+
+<br> <br> <br>
 ## Probleme
 
 ### java.util Strukturen
