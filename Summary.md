@@ -827,6 +827,246 @@ s.compareAndSet(s.getReference(),
 new Person(s.getReference().age+10), stampVal, ++stampVal);
 ```
 
+## Synchronizers
+
+Wenn es eine Bibliothek gibt die einen davor bewahrt Low-Level Java Synchronisation zu nutzen - **sollte man diese auf alle Fälle nutzen**. Ein Synchronizer ist ein Objekt, dass den Ablauf mehrere Threads auf irgendeine Art und Weise koordiniert.
+
+**Controlflow**
+
+- Semaphore
+- ReadWriteLock
+- CountDownLatch
+- CyclicBarrier
+
+**Handoff Data**
+
+- Exchanger
+- BlockingQueue
+
+### Semaphore
+
+Eine Semaphore ist eine ```Integer``` Variable, welche einen Resourcen-Zähler repräsentiert. Also die Anzahl erlaubter Nutzer.
+
+1. Eine Semaphore wird mit einem ```int```Wert initialisiert (= Anzahl permits).
+2. Methode ```aquire()```
+	- Wenn permits > 0, permits-- und druchlassen.
+	- Wenn permits = 0, blockieren bis permit verfügbar.
+
+3. ```release()``` inkrementiert permits um eins. Blockierung wird evtl. gelöst.
+
+```java
+class SemaphoreCarPark implements CarPark { 
+	private final Semaphore sema;
+
+	public SemaphoreCarPark(int places) { 
+		sema = new Semaphore(places);
+	}
+	
+	public void enter() { 
+		// blocking until permits > 0
+		sema.acquireUninterruptibly(); 
+		log("enter carpark");
+	}
+	
+	public void exit() { 
+		log("exit carpark"); 
+		sema.release();
+	} 	
+}
+```
+
+<img src="images/semaphore.png" width="400">
+
+### ReadWriteLock
+
+Werden Lese- und Schreibzugriffe mit dem selben Lock geschützt, so werden Threads die eigentlich nur lesen wollen unnötig geblockt. Mit einem ReadWriteLock kann dies so aufgelöst werden, dass Schreibzugriffe sowie Lesezugriffe durch einen seperaten Lock geschützt werden. Der Lese-Lock kann in diesem Fall von mehreren Threads gleichzeitig gehalten werden, der Schreib-Lock jedoch nur von einem.
+
+```java
+class KeyValueStore {
+	private final Map<String, Object> m = new TreeMap<>();
+	private final ReadWriteLock rwl = new ReentrantReadWriteLock();
+	private final Lock r = rwl.readLock();
+	private final Lock w = rwl.writeLock();
+	
+	public Object get(String key) {
+		r.lock(); try { return m.get(key); } finally { r.unlock(); }
+   }
+   
+   public Set<String> allKeys() {
+		r.lock(); 
+		try { return new HashSet<>(m.keySet()); } 
+		finally { r.unlock(); } 
+	}
+	
+	public void put(String key, Object value) {
+		w.lock(); 
+		try { m.put(key, value); } 
+		finally { w.unlock(); }
+   }
+   
+   public void clear() {
+		w.lock(); 
+		try { m.clear(); } 
+		finally { w.unlock(); } 
+	}
+}
+```
+
+<img src="images/readwritelock.png" width="400">
+
+### CountDownLatch
+
+Der CountDownLatch kann mit einem Türschloss mit ```n``` Schlössern verglichen werden. Threads werden an die verschlossene Türe herantreten, um diese zu öffnen werden aber ```n``` Schlüssel benötigt. So kann garantiert werden, dass die Threads erst weiter arbeiten sobald alle bzw. die notwenige Anzahl Threads bei der Türe angekommen sind.
+
+1. Latch wird mit einem count initialisiert
+2. Thread ruft ```await()```auf, ist count > 0 wird dieser blockiert
+3. Thread ruft ```countDown()``` auf, count wird um 1 verringert
+4. Wird count = 0 erreicht werden alle Threads durchgelassen
+
+```java
+final CountDownLatch startSignal = new CountDownLatch(1); 
+final CountDownLatch doneSignal = new CountDownLatch(N); 
+
+for (int i = 0; i < N; ++i)
+    new Thread() {
+        public void run() {
+			try {
+				startSignal.await(); 
+				doWork(); 
+				doneSignal.countDown();
+			} catch (InterruptedException ex) {
+				// handle error somehow...
+			} 
+		}
+	}.start();
+	
+doSomethingElse(); // don't let them run yet 
+startSignal.countDown(); // let all threads proceed doSomethingElse();
+doneSignal.await(); // wait for all threads to finish
+```
+
+<img src="images/countdownlatch.png" width="400">
+
+### CyclicBarrier
+
+Mit einer ```CyclicBarrier``` kann ein Set von Threads aufeinander warten, um einen gemeinsamen Punkt zu erreichen.
+
+1. Barrier wird mit Anzahl Threads initialisiert
+2. Die ersten (nThreads - 1) die ```await()``` aufrufen werden blockiert.
+3. Der letzte Thread der ```await()``` aufruft öffnet die Barriere.
+4. Nach dem die Barriere geöffnet wurde kann sie wiederverwendet werden (cyclic).
+
+```java
+final CyclicBarrier barrier = new CyclicBarrier(N); 
+
+for(int i = 0; i < N; i++) {
+	final int segment = i; // final handle to i 
+	
+	new Thread() {
+	   	public void run() {
+	   		try {
+				while (true) {
+					prepare(segment);
+					//wait for all other threads
+					barrier.await();
+					display(segment);
+				}
+			} catch (Exception e) { /* ignore */ }
+		} 
+	}.start();
+}
+```
+
+<img src="images/cyclicbarrier.png" width="400">
+
+### Exchanger
+
+Ein Exchanger ist ein Sychronisations-Punkt an welchem Threads Elemente von Paaren austauschen können.
+
+1. Der erste Thread bietet einen Austausch (zu ```T exchange(T t)```) an und blockiert.
+2. Der zweite Thread bietet ebenso einen Austausch an
+3. Beide Threads erhalten jeweiliges Gegenstück und laufen weiter
+
+```java
+class FillingLoop implements Runnable {
+	private final Exchanger<List<Integer>> exchanger; 
+	private List<Integer> currentBuffer;
+
+	FillingLoop(List<Integer> buf, Exchanger<List<Integer>> ex) {
+		this.currentBuffer = buf; 
+		this.exchanger = ex; 
+	}
+	
+	public void run() { // exception handler omitted
+		
+		while (true) {
+			if (currentBuffer.size() < MAX) {
+				addToBuffer(currentBuffer); 
+			} else {
+				// exchange full buffer for empty
+				currentBuffer = exchanger.exchange(currentBuffer); 
+			}
+		} 
+	}
+}
+```
+
+<img src="images/exchanger.png" width="400">
+
+### BlockingQueue
+
+Eine ```BlockingQueue``` ermöglicht es, darauf zu warten bis der Queue nicht mehr leer oder voll ist.
+
+1. Eine queue mit fixer Anzahl Plätze wird initialisiert
+2. Die queue wird zwischen Producer und Consumer geshared
+3. Der Producer legt ein Element in der Queue ab
+4. Der Consumer entfernt das Element aus der Queue
+
+Eine solche ```BlockingQueue``` eignet sich für das Entkoppeln von Producer und Consumer wie z.B. Gäse die bestellen und Köche die Kochen.
+
+```java
+class Producer implements Runnable {
+	private final BlockingQueue<Data> queue; 
+	
+	Producer(BlockingQueue<Data> q) { 
+		queue = q;
+	} 
+	
+	public void run() {
+		try { while (true) { 
+			queue.put(produce()); 
+		}
+		} catch (InterruptedException ex) {
+			// NOP
+		} 
+	}
+    
+    Data produce() { ... }
+}
+
+class Consumer implements Runnable {
+	private final BlockingQueue<Data> queue; 
+	
+	Consumer(BlockingQueue<Data> q) { 
+		queue = q; 
+	} 
+	
+	public void run() {
+		try { 
+			while (true) { 
+				consume(queue.take());
+			}
+		} catch (InterruptedException ex) {
+			// NOP
+		}
+	}
+	
+	void consume(Data x) { ... } 
+}
+```
+
+<img src="images/blockingqueue.png" width="400">
+
 <br> <br> <br>
 ## Probleme
 
