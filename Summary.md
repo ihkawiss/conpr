@@ -1068,15 +1068,365 @@ class Consumer implements Runnable {
 <img src="images/blockingqueue.png" width="400">
 
 <br> <br> <br>
-## Probleme
+## Code
 
-### java.util Strukturen
-
-HashMap, HashTree, List usw. sind nicht ThreadSafe, Lösung:
+### Lockfree ThreadValue (CAS)
 
 ```java
-List newList = Collections.synchronizedList(oldList);
-Map newMap = 
+public class ThreadValue {
+
+	public class Pair {
+		private final Object value;
+		private final Thread receiver;
+
+		public Object getValue() {
+			return value;
+		}
+
+		public Thread getReceiver() {
+			return receiver;
+		}
+
+		public Pair(Object value, Thread receiver) {
+			this.value = value;
+			this.receiver = receiver;
+		}
+	}
+
+	AtomicReference<Pair> ref = new AtomicReference<>();
+
+	public void putValue(Object value, Thread receiver) {
+		ref.set(new Pair(value, receiver));
+		receiver.notify();
+	}
+
+	public Object getValue() throws InterruptedException {
+		while (true) { // busy waiting
+			Pair currentPair = ref.get();
+			Thread currentThread = Thread.currentThread();
+
+			// msg available
+			if (ref.get().getReceiver() == currentThread) {
+				if (ref.compareAndSet(currentPair, new Pair(null, null)))
+					return currentPair.getValue();
+			}
+
+			// interrupted?
+			if (currentThread.isInterrupted()) {
+				return null;
+			}
+			
+			currentThread.wait();
+		}
+	}
+
+}
 ```
 
-**TODO: SUMMARY BANK SOLUTIONS HERE...**
+### Locking (Conditional Waiting - lock/condition)
+```java
+public class LockGroup {
+
+	int counter = 0;
+	String group = null;
+
+	private final Lock LOCK = new ReentrantLock();
+	private final Condition SIGNAL = LOCK.newCondition();
+
+	public void lock(String group) throws InterruptedException {
+		LOCK.lock();
+
+		try {
+
+			// check if group has LOCK permit
+			while (counter > 0 && !this.group.equals(group)) {
+				SIGNAL.await(); // wait for signal to acquire lock
+			}
+
+			// first lock() call
+			if (this.group == null) {
+				this.group = group;
+				counter++;
+			}
+
+			// same group - give lock
+			if (this.group.equals(group)) {
+				counter++;
+			}
+
+		} catch (Exception e) {
+			// NOP
+		} finally {
+			LOCK.unlock();
+		}
+	}
+
+	public void unlock(String group) {
+
+		LOCK.lock();
+
+		try {
+
+			if (this.group.equals(group)) {
+				// perform unlock
+				counter--;
+
+				if (counter == 0) {
+					this.group = null;
+					SIGNAL.signalAll();
+				}
+
+			} else {
+				throw new IllegalStateException();
+			}
+
+		} catch (Exception e) {
+
+			if (e instanceof IllegalStateException) {
+				// re-throw
+				throw new IllegalStateException("can't unlock if you do not hold the lock");
+			}
+
+		} finally {
+			LOCK.unlock();
+		}
+
+	}
+
+}
+```
+
+### Spinlock (CAS)
+```java
+public class ReentrantSpinLock {
+
+	private final AtomicInteger counter = new AtomicInteger(0);
+	private final AtomicReference<Thread> holder = new AtomicReference<Thread>();
+
+	public void lock() {
+
+		while (true) {
+
+			// new lock
+			Thread t = holder.get();
+			if (t == null) {
+				if (holder.compareAndSet(null, Thread.currentThread()))
+					return; // exit loop
+			}
+
+			// reentrant, counter increment
+			else if (holder.get().equals(Thread.currentThread())) {
+				int current = counter.get();
+				int next = ++current;
+				if (counter.compareAndSet(current, next))
+					return; // exit loop
+			}
+
+		}
+
+	}
+
+	public void unlock() {
+
+		while (true) {
+
+			final Thread caller = Thread.currentThread();
+
+			// wrong caller
+			if (holder.get() != caller) {
+				throw new IllegalStateException();
+			}
+
+			// normal unlock
+			if (counter.get() > 1 && holder.get() == caller) {
+				int currentCount = counter.get();
+				int nextCount = ++currentCount;
+				if (counter.compareAndSet(currentCount, nextCount))
+					return;
+			}
+
+			// free unlock
+			if (counter.get() == 1 && holder.get() == caller) {
+				if (counter.compareAndSet(1, 0)) {
+					holder.set(null);
+					return;
+				}
+			}
+		}
+
+	}
+
+}
+```
+
+### PrivateSecret (Lock/Condition)
+```java
+public class PrivateSecret {
+
+	private final Lock lock = new ReentrantLock();
+	private final Condition waiting = lock.newCondition();
+
+	private final Map<Thread, String> map = new ConcurrentHashMap<>();
+
+	public void putSecret(String secret, Thread receiver) {
+		lock.lock(); // lock to ensure happens before
+		try {
+			map.put(receiver, secret);
+			waiting.signalAll();
+		} catch (Exception e) {
+
+		} finally {
+			lock.unlock();
+		}
+	}
+
+	public String getSecret() throws InterruptedException {
+		lock.lock();
+		try {
+
+			final Thread caller = Thread.currentThread();
+
+			while (!map.containsKey(caller)) { // busy waiting
+				waiting.await();
+			}
+
+			// clear result
+			String result = map.get(caller);
+			map.remove(caller);
+
+			// return result
+			return result;
+
+		} catch (Exception e) {
+
+		} finally {
+			lock.unlock();
+		}
+
+		return null;
+	}
+
+}
+```
+
+## Teil 2
+
+### Executor Framework
+
+Wird ein Webserver als Beispiel genommen, so kann dieser auf verschiedene Arten implementiert werden.
+
+- Single Threaded (schlechte Performance, unnötiges Warten)
+- Thread pro Request (Thread overhead -> scheduling, memory)
+- Fixed number of Threads (best variant, but also bad) 
+
+Abhilfe schafft hier das Executor Framework mit folgenden Teilnehmern:
+
+1. Worker (Thread der unterschiedliche Arbeit ausführt)
+2. Channel (Buffer in welchem auszuführende Arbeit wartet => wie Queue)
+
+**Executor = Channel + Worker**
+
+``` java
+public interface Executor { 
+	void execute(Runnable task);
+}
+```
+
+**Task = Runnable**
+
+``` java
+public interface Runnable { 
+	void run();
+}
+```
+
+**Beispiel**
+
+``` java
+Executor exec = new MyThreadPoolExecutor(10);
+exec.execute(() -> handleRequest(s));
+```
+
+Natürlich können Executors selbst implementiert werden, wobei alle Nachteile aus obigen Punkten ebenso erreicht werden können. Im Java-Namespace stehen jedoch mehrere fortgeschrittene Implementationen zur Verfügung, die z.B. folgende Features unterschützen.
+
+- FIFO, LIFO, PriorityQueue based executors
+- Maximale Anzahl gleichzeitiger Threads definierbar
+- Maximale Queue Grösse definierbar
+- Aktionen vor und oder nach Ausführung ```beforeExecute``` / ```afterExecute```
+
+#### Fortgeschrittene Implementationen
+
+- Executors.newFixedThreadPool (max Threads, tote werden ersetzt)
+- Executors.newCachedThreadPool (wieder verwenden von existierenden Threads)
+- Executors.newSingleThreadExecutor (nur ein Thread, ersetzt falls tot)
+- Executors.newScheduledThreadPool (periodic tasks, delayed tasks)
+
+#### Design
+
+- Verschiedene Arbeiten werden im gleichen Thread ausgeführt
+- ThreadLocals müssen daher aufgeräumt werden
+- Logische Abläufe können durch mehrere Threads ausgeführt werden
+- Informationen aus ThreadLocals sind nichtmehr immer verfügbar
+- Es gibt keine 1:1 Beziehung mehr zwischen Ablauf und Thread
+
+#### Executors & JMM
+
+- Aktionen in einem Thread, bevor ein Runnable submitted wurde, happen before der Ausführung des Runnables.
+- Aktionen in einem Task, welche in einem SingleThreadExecutor ausgeführt werden, happen before Aktionen in einem nachfolgenden Task.
+
+### Callable & Future
+
+Mittels Runnables können keine Rückgabewerte erwartet bzw. zurückgegeben werden. Hierfür können Callables (```V call() throws Exception```) und Fututres (```Fututre<V> -> V get() throws ...```) verwendet werden.
+
+**CompletionService = Executor + BlockingQueue**
+
+```java
+interface CompletionService {
+	Future<V> submit(Callable<V> task);
+	Future<V> submit(Runnable task, V result);
+	Future<V> take() throws IE; // waits for a future 
+	Future<V> poll(); // returns available future or null 
+	Future<V> poll(long timeout, TimeUnit unit) throws IE;
+}
+```
+
+**JMM**
+
+- Aktionen in einem Thread, bevor ein Runnnable/Callable zu einem ExecutorService hinzugefügt wurde, happen before Aktionen des neuen tasks.
+- Alle Aktionen welche von im ExecutorService ausgeführt werden happen before Future.get() returns.
+
+### ForkJoin Framework
+
+Arbeiten mehrere Threads an einem Problem, so kann es vorkommen, dass ein oder mehrere Threads warten und nichts tun. Diese Threads sollen jedoch wenn möglich die Wartezeit mit anderere Arbeit ausfüllen.
+
+``` java
+public class FJMS extends RecursiveAction {
+	public final int[] is, tmp; private final int l, r;
+	public FJMS(int[] is, int[] tmp, int l, int r) { 
+		this.is = is; this.tmp = tmp; this.l = l; this.r = r;
+	}
+	protected void compute() {
+	if (r - l<= 100000) Arrays.sort(elems, l, r); else
+	      int mid = (l + r) / 2;
+	      FJMS left = new FJMS (is, tmp, l, mid);
+	      FJMS right = new FJMS (is, tmp, mid, r);
+	      left.fork();
+	      right.invoke();
+	      left.join();
+	      merge(is, tmp, l, mid, r);
+	}
+	private void merge(int[ ] es, int[ ] tmp, int l, int m, int r) 
+	{
+	...
+	} 
+}
+
+// sample usage
+int[] data = ...
+int[] tmp = new int[data.length]; 
+ForkJoinPool fjPool = new ForkJoinPool(); 
+FJMS ms = new FJMS(data,tmp,0,data.length); 
+fjPool.invoke(ms);
+// When this line is reached, ms.is is sorted!
+
+```
