@@ -1347,6 +1347,14 @@ Executor exec = new MyThreadPoolExecutor(10);
 exec.execute(() -> handleRequest(s));
 ```
 
+**ThreadFactory**
+
+``` java
+public interface ThreadFactory { 
+	Thread newThread(Runnable r);
+}
+```
+
 Natürlich können Executors selbst implementiert werden, wobei alle Nachteile aus obigen Punkten ebenso erreicht werden können. Im Java-Namespace stehen jedoch mehrere fortgeschrittene Implementationen zur Verfügung, die z.B. folgende Features unterschützen.
 
 - FIFO, LIFO, PriorityQueue based executors
@@ -1381,12 +1389,50 @@ Mittels Runnables können keine Rückgabewerte erwartet bzw. zurückgegeben werd
 **CompletionService = Executor + BlockingQueue**
 
 ```java
+public interface Future<V> {
+	boolean cancel(boolean mayInterruptIfRunning);
+	boolean isCancelled();
+	boolean isDone();
+	V get() throws InterruptedException, ExecutionException;
+	V get(long timeout, TimeUnit unit) throws InterruptedException, 
+	ExecutionException, TimeoutException;
+}
+
+interface ExecutorService extends Executor { 
+	void shutdown();
+	List<Runnable> shutdownNow();
+	boolean isShutdown();
+	boolean isTerminated();
+	boolean awaitTermination(long timeout, TimeUnit unit)
+}
+
 interface CompletionService {
 	Future<V> submit(Callable<V> task);
 	Future<V> submit(Runnable task, V result);
 	Future<V> take() throws IE; // waits for a future 
 	Future<V> poll(); // returns available future or null 
 	Future<V> poll(long timeout, TimeUnit unit) throws IE;
+}
+
+public static void main(String[] args) throws InterruptedException, ExecutionException {
+	Executor ex = Executors.newFixedThreadPool(10);
+	ex.execute(() -> { System.out.println("Executed in Threadpool!");});
+
+	ExecutorService exs = Executors.newFixedThreadPool(4);
+	EchoCallable task = new EchoCallable("conpr msp");
+	Future<String> submit = exs.submit(task); // immediate return
+	submit.get(); // blocking, throws InterruptedException, ExecutionException
+}
+
+public static class EchoCallable implements Callable<String> {
+	private final String input;
+	public EchoCallable(String input) {
+		this.input = input;
+	}
+	@Override
+	public String call() throws Exception {
+		return input;
+	}
 }
 ```
 
@@ -1498,6 +1544,32 @@ object ImmutableCollections extends App {
  val optVal0 = map0.get(0) // None
  val optVal1 = map0.get(1) // Some(1)
  val res = map1.filter(kv => kv._1 > 2) // Map(3 -> "three")
+}
+```
+
+**Pattern Matching**
+
+```java
+list match {
+      case List()  => 0 // empty
+      case Nil => 0 // empty
+      case x :: xs => 1 + length(xs) // not empty
+   }
+```
+
+**Case Classes**
+
+Diese Klassen können für das Pattern Matching verwendet werden. Es werden default Implementationen für z.B. hashCode zur Verfügung gestellt. Das Keyword ```new``` ist nicht nötig.
+
+```java
+abstract class Tree
+case class Sum(x: Tree, y: Tree) extends Tree
+...
+def eval(t: Tree, env: Map[String,Int]) : Int = t match { 
+	case Sum(x, y) => eval(x, env) + eval(y, env)
+	case Prod(x, y) => eval(x, env) * eval(y, env)
+	case Var(n) => env(n)
+   	case Const(v)   => v
 }
 ```
 
