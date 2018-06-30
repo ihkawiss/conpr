@@ -1811,3 +1811,205 @@ ref.transform(insideRef => f(insideRef))
 
 - Txn.afterCommit(handler: Status => Unit)
 - Txn.afterRollback(handler: Status => Unit)
+
+#### Aktoren
+
+Aktoren kommunizieren ausschliesslich mittels Nachrichten. Diese werden asynchron gesendet und haben eine ```send by``` Semantik. Aktoren teilen keinen veränderbaren Zustand - no shared mutable state, **share nothing concurrency**!
+
+Ein Aktor besteht aus:
+- Gekapseltem State
+- Verhalten (Business Logic)
+- Mailbox
+
+Aktoren sind ein alternativer Ansatz zur üblichen Nebenläufigen-Programmierung. Aktoren die Koordinierung auf shared mutable state, in dem sie:
+
+- allen mutable state private halten
+- shared state immutable halten
+- über immutable & async massage-passing kommunizieren
+
+##### Aktoren in Scala (akka.io)
+
+Simpler Aktor:
+
+```scala
+// Actor infrastructure
+val as = ActorSystem("as") 
+
+// Actor definition
+class PrintActor extends Actor { 
+	var nthRequest = 0 // Mutable state
+	def receive = case msg => { 
+		nthRequest += 1
+		println(nthRequest + ":" + msg)
+	}
+}
+
+// Creation and start of an actor
+val printActor: ActorRef = as.actorOf(Props[PrintActor]) 
+```
+
+**Creating an Actor Instance**
+
+Default constructor
+
+```scala
+class PrintActor extends Actor { ... }
+val print: ActorRef = as.actorOf(Props[PrintActor])
+```
+
+Non default constructor
+
+```scala
+class PrintActor(pre: String) extends Actor { ... }
+val print: ActorRef = as.actorOf(Props(new PrintActor("Msg:")))
+```
+
+Anonymous Actor subclass
+
+```scala
+val print: ActorRef = as.actorOf(Props( new Actor {
+	def receive = { case msg => println(msg) } }
+))
+```
+
+**Sending Messages: Fire-Forget**
+
+The **!** (tell) operator sends messages
+
+- Asynchronous
+- Message is stored in the mailbox of the receiver
+- Messages can be anything (Any)
+- Result of a send expression is ()
+
+#### Message Delivery Guarantees
+
+- at-most-once delivery / no guaranteed delivery (send-and-pray)
+- message ordering per sender-receiver pair
+
+#### Receiving Messages
+
+```scala
+def receive = {
+	case pattern_1 => StatementSeq_1
+	case pattern_2 => StatementSeq_2
+	...
+	case pattern_N =>  pf
+}
+
+val pf: PartialFunction[Any,Unit] = {
+	case i: Int if i > 42 => println("huge")
+	case s: String => println(s.reverse)
+	
+	// some more code...
+	pf.isDefinedAt(42) // false
+	pf.isDefinedAt(43) // true 
+	pf(42) // throws MatchError 
+	pf(43) // prints "huge"
+}
+```
+
+#### Receiving Messages: Case Classes
+
+Typischerweise werden zur Verarbeitung von empfangenen Nachrichten Case-Classes verwendet.
+
+```scala
+case class PrintMsg(msg: String)
+case class ShoutMsg(msg: String)
+class PrintActor extends Actor {
+def receive = {
+	case PrintMsg(m) => println("received: " + m)
+	case ShoutMsg(m) => println("RECEIVED: " + m.toUpperCase)
+}
+}
+```
+
+#### Receive Timeout
+
+```scala
+class TimeOutActor extends Actor {
+	context.setReceiveTimeout(3.second)
+	def receive = {
+		case "Tick" => println("Tick")
+		case ReceiveTimeout => println("TIMEOUT")
+	}
+}
+```
+
+#### Ask: Send-And-Receive-Future
+
+'?' takes an implicit timeout (can be passed explicitly)
+
+```scala
+val timeout = Timeout(3 seconds)
+val futResult: Future[Any] = echoActor ? ("Hello")(timeout)
+```
+
+Result type can be casted using mapTo[TargetType]
+
+```scala
+val futResult: Future[String] = (echoActor ? "Hello").mapTo[String]
+```
+
+For further Future processing an ExecutionContext is required
+
+```scala
+val as = ActorSystem("as")
+import as.dispatcher // ExecutionContext required by Future#map
+futureResult.map(s => s.toUpperCase)
+```
+
+#### Finite State Machines
+
+FSM Example: Switch (state directed)
+
+```scala
+case object On
+case object Off
+class Switch extends Actor {
+	var on = false
+	def receive = {
+		case On if !on => println("turned on"); on = true
+		case Off if on => println("turned off"); on = false
+		case _ => println("ignore")
+	}
+}
+val as = ActorSystem("as")
+val switch = as.actorOf(Props[Switch])
+
+// ausgabe
+scala>switch ! On
+scala>turned on
+scala>switch ! On
+scala>ignore
+```
+
+FSM Example: Switch (receive hotswap)
+
+```scala
+case object On
+case object Off
+
+class Switch extends Actor {
+	
+	val offBehavior: PartialFunction[Any,Unit] = {
+		case On => println("turned on"); context.become(onBehavior, false)
+		case _ => println("ignore")
+	}
+
+	val onBehavior: PartialFunction[Any,Unit] = {
+		case Off => println("turned off"); context.unbecome()
+		case _ => println("ignore")
+	}
+
+	def receive = offBehavior
+}
+
+val as = ActorSystem("as")
+val switch = as.actorOf(Props[Switch])
+
+// ausgabe
+scala>switch ! On
+scala>turned on
+scala>switch ! On
+scala>ignore
+```
