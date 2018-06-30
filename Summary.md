@@ -1593,7 +1593,7 @@ List(1,2,3).par.map(i => i*2).seq.toList
 Werden in Java Futures verwendet, so kann/muss blockiert werden bis das Resultat zurückkommt. In Scala können hierfür callbacks registriert werden.
 
 ```scala
-def loadHomePage(): Future[String] = ...
+def loadHomePage(): Future[String] = Future { loadHeavyData() }( )
 loadHomePage().onComplete { 
 	case Success(m) =>
 		val index = indexContent(m)
@@ -1661,6 +1661,33 @@ trait Subscription {
 	def unsubscribe(): Unit
 	def isUnsubscribed(): Boolean
 }
+
+// Observable[Student]
+// conprStudents = list of studis
+Observable.interval(
+	FETCH_TIME_PER_ROW millis).zip(Observable.from(conprStudents))
+	.map(p => new Student(p._2))
+
+// subscribe
+students.subscribe(
+	student => println(s"[${time} ms] ${student.email}")
+)
+
+// The most general way to create an observable.
+val observable = Observable[Int]((obs: Subscriber[Int]) => {
+	new Thread() {
+	  override def run() {
+	    var cnt = 0
+	    while(!obs.isUnsubscribed) {
+	      obs.onNext(cnt)
+	      cnt += 1
+	    }
+	    obs.onCompleted()
+	  }
+	}.start
+})
+  
+  observable.map(_ * 2).subscribe(i => println(i))
 ```
 
 ####  Scala / Concurrent (Wichtigstes)
