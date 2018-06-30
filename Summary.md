@@ -2013,3 +2013,55 @@ scala>turned on
 scala>switch ! On
 scala>ignore
 ```
+
+### Testing
+
+#### JCStress
+
+Library zum Testen von Multi-Threaded Applikationen. Status ist ```experimental```, Teil des OpenJDK. Klassen und Methoden können Annotiert werden, Tests werden mehrere Male ausgeführt um Side-Effekts zu provodzieren.
+
+```java
+@JCStressTest
+@Description("Tests racy assignments.")
+@Outcome(id = "1, 0", expect = Expect.ACCEPTABLE, desc = "t1 first")
+@Outcome(id = "0, 1", expect = Expect.ACCEPTABLE, desc = "t2 first")
+@Outcome(id = "1, 1", expect = Expect.ACCEPTABLE, desc = "Interleaving")
+@Outcome(id = "0, 0", expect = Expect.ACCEPTABLE_SPEC, desc = "JMM issue.")
+@State
+public class JMMTest {
+	int x = 0, y = 0;
+	int a = 0, b = 0;
+	@Actor
+	public void thread1() {
+		x = 1;
+		b = y;
+	}
+
+	@Arbiter
+	public void observe(II_Result res) {
+		res.r1 = a;
+		res.r2 = b;
+	}
+}
+```
+
+#### Spin Modelchecker
+
+Alle möglichen Interleavings einer Multi-Threaded Applikation zu testen ist mit der JVM schlicht nicht möglich. Um aber sicher zu sein, dass kein Interleaving ein falsches Resultat produziert - müssten alle getestet werden.
+
+Vorgehen:  
+- Model in PROBLEMA programmieren
+- Bedingungen definieren
+- Mit SPIN alle möglichen Interleavings testen lassen
+
+#### Findbugs
+
+Findbugs analysiert den Code und weist auf bekannte Java-Bugs hin, unteranderem auch Concurrency-Bugs. 
+
+#### Fazit
+
+**Testing concurrent software is difficult!**
+
+- JCStress (Repeatedly executing unit tests)
+- Findbugs (Static program analysis)
+- Spin (Model checking (exhaustive testing of all possible executions))
