@@ -1715,3 +1715,99 @@ val result = lock.synchronized {
 }
 
 ```
+
+### Software Transactional Memory (STM)
+
+In der modernen Programmierung (Java) werden komplexe Konstrukte zur Thread-sicheren Verarbeitung von Abläufen implementiert. Diese müssen durch den Entwickler verstanden und implementiert werden. Mit STM wird dies wesentlich vereinfacht:   
+**Es wird nur definiert, was atomar ausgeführt werden soll - nicht wie das technisch passiert (Lock, CAS, usw.)**
+
+Beispiel:  
+
+```scala
+def transfer(from: Account, to: Account, amount: Double): Unit = { 
+	atomic { implicit tx =>
+	from.withdraw(amount)
+	to.deposit(amount)
+	}
+}
+```
+
+##### Transactions
+
+Bei STM werden Abläufe in Transaktionen gekapselt ausgeführt. Eine Transaktion ist ein Vorgang von Schreib/Lese Zugriffen auf Shared Memory, der zur selben Zeit nur einmal passieren darf, wobei gekapselte Zustände in anderen Transaktionen nicht sichtbar sind. ==> ACI (All or nothing, Consistent, Isolation)
+
+##### Ablauf (Optimistic Concurrency Control)
+
+1. Transaktion beginnen
+2. State Änderungen durchführen
+3. In einen Konflikt gelaufen?
+	- JA => Abbruch und neu versuchen
+	- NEIN => Commit, Änderungen permanent und sichtbar
+
+**Single Reference Transactions**
+
+```scala
+while (true) {
+	val oldBal = bal; // read current value
+	val newBal = oldBal + amount; // compute new value
+	if (compareAndSet(addr(bal), oldBal, newBal)) {
+		return; // commit successful -> return
+	}
+	// conflict -> retry
+}
+```
+**Multi Reference Transactions**
+
+```scala
+while(true) {
+	int oldFromBal = from.bal;
+	int newFromBal = oldFromBal - amount;
+	int oldToBal = to.bal;
+	int newToBal = oldToBal + amount;
+	if(STM.multiCAS(addr(from.bal), oldFromBal, 
+	newFromBal, addr(to.bal) , oldToBal , newToBal)) {
+		return;
+	}
+	// retry
+}
+```
+
+#### ScalaSTM
+
+Scala's STM Implementierung basiert auf 2 fundamentalen Teilen.
+
+1. ```Ref``` als Accesor (Koordinator) auf mutable state
+2. ```atomic``` führt Funktion in Transaction aus
+
+Beispiel:
+
+```scala
+private val bal: Ref[Double] = Ref(0.0)
+def withdraw(a: Double) {
+	atomic { implicit tx => bal.set(bal.get – a) }
+}
+```
+
+**ScalaSTM: Ref**  
+(read|write|transform) compile only within an atomic block!
+
+```scala
+// erstellen
+val ref = Ref[Type](initValue)
+
+// lesen
+val insideRef = ref()
+val insideRef = ref.get
+
+// schreiben
+ref() = newValue 
+ref.set(newValue)
+
+// transform
+ref.transform(insideRef => f(insideRef))
+```
+
+**Lifecycle callbacks**
+
+- Txn.afterCommit(handler: Status => Unit)
+- Txn.afterRollback(handler: Status => Unit)
